@@ -132,6 +132,13 @@ Connector Options
       <td>Topic name(s) to read data from when the table is used as source, or topics for writing when the table is used as sink. It also supports topic list for source by separating topic by semicolon like <code>'topic-1;topic-2'</code>. Note, only one of "topic-pattern" and "topic" can be specified. For sinks, the topic name is the topic to write data. It also supports topic list for sinks. The provided topic-list is treated as a allow list of valid values for the `topic` metadata column. If a list is provided, for sink table, 'topic' metadata column is writable and must be specified.</td>
     </tr>
     <tr>
+      <td><h5>topic-pattern</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>The regular expression for a pattern of topic names to read from or write to. All topics with names that match the specified regular expression will be subscribed by the consumer when the job starts running. For sinks, the <code>topic</code> metadata column is writable, must be provided and match the <code>topic-pattern</code> regex. Note, only one of "topic-pattern" and "topic" can be specified.</td>
+    </tr>
+    <tr>
       <td><h5>properties.bootstrap.servers</h5></td>
       <td>required</td>
       <td style="word-wrap: break-word;">(none)</td>
@@ -193,9 +200,39 @@ Connector Options
       </td>
     </tr>
     <tr>
+      <td><h5>scan.topic-partition-discovery.interval</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">5 minutes</td>
+      <td>Duration</td>
+      <td>Interval for consumer to discover dynamically created Kafka topics and partitions periodically. To disable this feature, you need to explicitly set the 'scan.topic-partition-discovery.interval' value to 0.</td>
+    </tr>
+    <tr>
+      <td><h5>scan.bounded.mode</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">unbounded</td>
+      <td>Enum</td>
+      <td>Bounded mode for the upsert-kafka source, valid values are <code>'latest-offset'</code>, <code>'group-offsets'</code>, <code>'timestamp'</code> and <code>'specific-offsets'</code>.
+       See <a href='{{< ref "docs/connectors/table/kafka" >}}#bounded-ending-position'>Bounded Ending Position</a> of the regular Kafka connector for more details.</td>
+    </tr>
+    <tr>
+      <td><h5>scan.bounded.specific-offsets</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>Specify offsets for each partition in case of <code>'specific-offsets'</code> bounded mode, e.g. <code>'partition:0,offset:42;partition:1,offset:300'</code>. If an offset
+       for a partition is not provided it will not consume from that partition.
+      </td>
+    </tr>
+    <tr>
+      <td><h5>scan.bounded.timestamp-millis</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>Long</td>
+      <td>End at the specified epoch timestamp (milliseconds) used in case of <code>'timestamp'</code> bounded mode.</td>
+    </tr>
+    <tr>
       <td><h5>scan.parallelism</h5></td>
       <td>optional</td>
-      <td>no</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>Integer</td>
       <td>Defines the parallelism of the upsert-kafka source operator. If not set, the global default parallelism is used.</td>
@@ -232,7 +269,6 @@ Connector Options
     <tr>
       <td><h5>sink.delivery-guarantee</h5></td>
       <td>optional</td>
-      <td>no</td>
       <td style="word-wrap: break-word;">at-least-once</td>
       <td>String</td>
       <td>Defines the delivery semantic for the upsert-kafka sink. Valid enumerationns are <code>'at-least-once'</code>, <code>'exactly-once'</code> and <code>'none'</code>. See <a href='#consistency-guarantees'>Consistency guarantees</a> for more details. </td>
@@ -240,10 +276,16 @@ Connector Options
     <tr>
       <td><h5>sink.transactional-id-prefix</h5></td>
       <td>optional</td>
-      <td>yes</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>String</td>
       <td>If the delivery guarantee is configured as <code>'exactly-once'</code> this value must be set and is used a prefix for the identifier of all opened Kafka transactions.</td>
+    </tr>
+    <tr>
+      <td><h5>sink.transaction-naming-strategy</h5></td>
+      <td>optional</td>
+      <td style="word-wrap: break-word;">INCREMENTING</td>
+      <td>Enum</td>
+      <td>Advanced option to influence how transactions are named when the delivery guarantee is <code>'exactly-once'</code>. Valid enumerations are <code>'INCREMENTING'</code> and <code>'POOLING'</code>.<br><code>INCREMENTING</code> is the strategy used in flink-connector-kafka 3.X (default). It wastes memory of the Kafka broker but works with older Kafka broker versions (Kafka 2.X).<br><code>POOLING</code> is a new strategy introduced in flink-connector-kafka 4.X. It is more resource-friendly than <code>INCREMENTING</code> but requires Kafka 3.0+ and read permission on the target topics. Switching to this strategy requires a checkpoint taken with flink-connector-kafka 4.X or a savepoint taken with earlier versions; switching back from <code>POOLING</code> to <code>INCREMENTING</code> is not supported. See <a href='{{< ref "docs/connectors/datastream/kafka" >}}#transaction-naming-strategy'>Transaction Naming Strategy</a> for details.</td>
     </tr>
     </tbody>
 </table>
@@ -253,7 +295,7 @@ Features
 
 ### Key and Value Formats
 
-See the [regular Kafka connector]({{< ref "docs/connectors/datastream/kafka" >}}#key-and-value-formats) for more
+See the [regular Kafka connector]({{< ref "docs/connectors/table/kafka" >}}#key-and-value-formats) for more
 explanation around key and value formats. However, note that this connector requires both a key and
 value format where the key fields are derived from the `PRIMARY KEY` constraint.
 
@@ -312,7 +354,7 @@ Besides enabling Flink's checkpointing, you can also choose three different mode
   or `read_committed` - the latter one is the default value) for any application consuming records
   from Kafka.
 
-Please refer to [Kafka connector documentation]({{< ref "docs/connectors/datastream/kafka" >}}#kafka-producers-and-fault-tolerance) for more caveats about delivery guarantees.
+Please refer to [Kafka connector documentation]({{< ref "docs/connectors/datastream/kafka" >}}#fault-tolerance) for more caveats about delivery guarantees.
 
 ### Source Per-Partition Watermarks
 

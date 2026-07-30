@@ -181,7 +181,11 @@ KafkaSource.builder()
     // Start from earliest offset
     .setStartingOffsets(OffsetsInitializer.earliest())
     // Start from latest offset
-    .setStartingOffsets(OffsetsInitializer.latest());
+    .setStartingOffsets(OffsetsInitializer.latest())
+    // Start from the specified offsets for the listed partitions. Any subscribed partition that is
+    // absent from the map falls back to its committed offset, and then to the reset strategy
+    // (EARLIEST here; an overload accepts an explicit OffsetResetStrategy)
+    .setStartingOffsets(OffsetsInitializer.offsets(specifiedOffsets));
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -521,11 +525,15 @@ when the record is emitted downstream.
 
 ## Kafka SourceFunction
 {{< hint warning >}}
-`FlinkKafkaConsumer` is deprecated and will be removed with Flink 1.17, please use `KafkaSource` instead.
+`FlinkKafkaConsumer` has been **removed**. It was built on the legacy `SourceFunction` API and was
+dropped in flink-connector-kafka 4.0; the last release series that contains it is 3.4.
+Use [Kafka Source](#kafka-source) instead.
 {{< /hint >}}
 
-For older references you can look at the Flink 1.13 <a href="https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-sourcefunction">documentation</a>.
- 
+If you are still migrating off `FlinkKafkaConsumer`, see the
+[3.4 documentation](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)
+for its options and the [migration notes](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer) below.
+
 ## Kafka Sink
 
 `KafkaSink` allows writing a stream of records to one or more Kafka topics.
@@ -636,6 +644,69 @@ an explanation of the different guarantees.
   transaction.timeout.ms)>> maximum checkpoint duration + maximum restart duration or data loss may
   happen when Kafka expires an uncommitted transaction. 
 
+### Transaction Naming Strategy
+
+{{< hint info >}}
+This section only applies to `DeliveryGuarantee.EXACTLY_ONCE`. The other delivery guarantees do
+not open Kafka transactions, so the naming strategy has no effect on them.
+{{< /hint >}}
+
+When the sink runs with `DeliveryGuarantee.EXACTLY_ONCE`, every transaction it opens gets a name of
+the form `transactionalIdPrefix-subtask-offset`. The strategy controls how `offset` is derived,
+which matters operationally: a Kafka broker keeps metadata for every **unique** transactional id in
+memory for 7 days, so a strategy that keeps inventing new names consumes broker memory
+proportionally to the number of checkpoints.
+
+The strategy is configured on the builder:
+
+```java
+KafkaSink.<String>builder()
+    .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+    .setTransactionalIdPrefix("my-app")
+    .setTransactionNamingStrategy(TransactionNamingStrategy.POOLING);
+```
+
+<table class="table table-bordered">
+  <thead>
+    <tr>
+      <th class="text-left" style="width: 15%">Strategy</th>
+      <th class="text-left" style="width: 25%">Requirements</th>
+      <th class="text-left" style="width: 60%">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>INCREMENTING</code> (default)</td>
+      <td>Kafka 2.x or later</td>
+      <td>The offset is a monotonically increasing number that mostly corresponds to the checkpoint
+      id. This is exactly the behavior of flink-connector-kafka 3.X. It works against older brokers
+      but is wasteful in terms of broker memory, because each checkpoint introduces a new
+      transactional id.</td>
+    </tr>
+    <tr>
+      <td><code>POOLING</code></td>
+      <td>Kafka 3.0+ and <strong>read permission</strong> on the target topics</td>
+      <td>Transaction names are reused from a pool, so the number of distinct transactional ids stays
+      bounded. Introduced in flink-connector-kafka 4.X and considerably more resource-friendly on the
+      broker. It needs read access to the target topics because recovery lists existing transactions
+      instead of probing for them.</td>
+    </tr>
+  </tbody>
+</table>
+
+{{< hint warning >}}
+**Switching strategies is not symmetric.**
+
+* `INCREMENTING` → `POOLING`: take a checkpoint with flink-connector-kafka 4.X or later and then
+  switch, which guarantees that no transactions are left open from the previous run.
+  Alternatively, restore from a savepoint taken with any version.
+* `POOLING` → `INCREMENTING`: **not supported.** Do not switch back once you have adopted
+  `POOLING`.
+{{< /hint >}}
+
+The default is `INCREMENTING` for backwards compatibility with 3.X. It is recommended to change the
+strategy only if you actually hit broker-side resource pressure from transactional id metadata.
+
 ### Monitoring
 
 Kafka sink exposes the following metrics in the respective [scope]({{< ref "docs/ops/metrics" >}}/#scope).
@@ -664,10 +735,14 @@ Kafka sink exposes the following metrics in the respective [scope]({{< ref "docs
 ## Kafka Producer
 
 {{< hint warning >}}
-`FlinkKafkaProducer` is deprecated and will be removed with Flink 1.15, please use `KafkaSink` instead.
+`FlinkKafkaProducer` has been **removed**. It was built on the legacy `SinkFunction` API and was
+dropped in flink-connector-kafka 4.0; the last release series that contains it is 3.4.
+Use [Kafka Sink](#kafka-sink) instead.
 {{< /hint >}}
 
-For older references you can look at the Flink 1.13 <a href="https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-producer">documentation</a>.
+If you are still migrating off `FlinkKafkaProducer`, see the
+[3.4 documentation](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)
+for its options and the [migration notes](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer) below.
 
 ## Kafka Connector Metrics
 
@@ -677,14 +752,14 @@ The producers and consumers export Kafka's internal metrics through Flink's metr
 The Kafka documentation lists all exported metrics in its [documentation](http://kafka.apache.org/documentation/#selector_monitoring).
 
 It is also possible to disable the forwarding of the Kafka metrics by either configuring `register.consumer.metrics`
-outlined by this [section]({{< relref "#kafka-connector-metrics" >}}) for the KafkaSource or when 
+outlined by this [section]({{< relref "#additional-properties" >}}) for the KafkaSource or when 
 using the KafkaSink you can set the configuration `register.producer.metrics` to false via the producer
 properties.
 
 ## Enabling Kerberos Authentication
 
 Flink provides first-class support through the Kafka connector to authenticate to a Kafka installation
-configured for Kerberos. Simply configure Flink in `flink-conf.yaml` to enable Kerberos authentication for Kafka like so:
+configured for Kerberos. Simply configure Flink in `config.yaml` to enable Kerberos authentication for Kafka like so:
 
 1. Configure Kerberos credentials by setting the following -
  - `security.kerberos.login.use-ticket-cache`: By default, this is `true` and Flink will attempt to use Kerberos credentials in ticket caches managed by `kinit`.
@@ -711,18 +786,40 @@ guide]({{< ref "docs/ops/upgrading" >}}). For Kafka, you additionally need
 to follow these steps:
 
 * Do not upgrade Flink and the Kafka Connector version at the same time.
-* Make sure you have a `group.id` configured for your Consumer.
-* Set `setCommitOffsetsOnCheckpoints(true)` on the consumer so that read
-  offsets are committed to Kafka. It's important to do this before stopping and
-  taking the savepoint. You might have to do a stop/restart cycle on the old
-  connector version to enable this setting.
-* Set `setStartFromGroupOffsets(true)` on the consumer so that we get read
-  offsets from Kafka. This will only take effect when there is no read offset
-  in Flink state, which is why the next step is very important.
+* Make sure you have a `group.id` configured for your source, via
+  `KafkaSource.builder().setGroupId(String)`.
+* Take a savepoint or a stop-with-savepoint before the upgrade. `KafkaSource` restores its
+  offsets from Flink state, so an upgrade that keeps the operator `uid` requires no further
+  action.
+* If you are also changing the delivery guarantee or the transaction naming strategy of
+  `KafkaSink`, read [Transaction Naming Strategy](#transaction-naming-strategy) first — some
+  transitions require a savepoint and one of them is not supported at all.
+
+### Migrating from `FlinkKafkaConsumer` and `FlinkKafkaProducer`
+
+`FlinkKafkaConsumer` and `FlinkKafkaProducer` were removed in flink-connector-kafka 4.0. Their
+state is not compatible with `KafkaSource` / `KafkaSink`, so the migration cannot be done by
+simply restoring the savepoint:
+
+* While still on connector 3.4 or earlier, make sure a `group.id` is configured on
+  `FlinkKafkaConsumer` and that `setCommitOffsetsOnCheckpoints(true)` is set, so that read
+  offsets are committed to Kafka. It's important to do this before stopping and taking the
+  savepoint. You might have to do a stop/restart cycle on the old connector version to enable
+  this setting.
+* Take a savepoint and stop the job.
+* Replace `FlinkKafkaConsumer` with `KafkaSource` and `FlinkKafkaProducer` with `KafkaSink`, and
+  configure the source with `setStartingOffsets(OffsetsInitializer.committedOffsets())` so that
+  it picks up the offsets that were committed to Kafka in the first step.
 * Change the assigned `uid` of your source/sink. This makes sure the new
   source/sink doesn't read state from the old source/sink operators.
 * Start the new job with `--allow-non-restored-state` because we still have the
   state of the previous connector version in the savepoint.
+
+{{< hint warning >}}
+An in-flight `FlinkKafkaProducer` transaction cannot be adopted by `KafkaSink`. Stop the old job
+with a savepoint (which commits its pending transactions) before switching, otherwise
+`EXACTLY_ONCE` consumers may block on an uncommitted transaction until it times out.
+{{< /hint >}}
 
 ## Troubleshooting
 

@@ -161,39 +161,6 @@ source = DynamicKafkaSource.builder() \
 {{< /tab >}}
 {{< /tabs >}}
 
-### Watermark 对齐
-
-当启用 watermark alignment 且一个 Dynamic Kafka reader 持有多个 split 时，Flink 可能会暂停或恢复单个 split，以便将各 split 的 watermark 控制在配置的 drift 范围内。Dynamic Kafka Source 会将这些针对 split 的 pause/resume 请求转发给底层 Kafka source readers，因此 split 级别的 watermark 对齐行为与常规 Kafka Source 一致。
-
-### Kafka Stream Subscription
-The Dynamic Kafka Source provides 2 ways of subscribing to Kafka stream(s).
-* A set of Kafka stream ids. For example:
-  {{< tabs "DynamicKafkaSource#setStreamIds" >}}
-  {{< tab "Java" >}}
-  ```java
-  DynamicKafkaSource.builder().setStreamIds(Set.of("stream-a", "stream-b"));
-  ```
-  {{< /tab >}}
-  {{< tab "Python" >}}
-  ```python
-  DynamicKafkaSource.builder().set_stream_ids({"stream-a", "stream-b"})
-  ```
-  {{< /tab >}}
-  {{< /tabs >}}
-* A regex pattern that subscribes to all Kafka stream ids that match the provided regex. For example:
-  {{< tabs "DynamicKafkaSource#setStreamPattern" >}}
-  {{< tab "Java" >}}
-  ```java
-  DynamicKafkaSource.builder().setStreamPattern(Pattern.of("stream.*"));
-  ```
-  {{< /tab >}}
-  {{< tab "Python" >}}
-  ```python
-  DynamicKafkaSource.builder().set_stream_pattern("stream.*")
-  ```
-  {{< /tab >}}
-  {{< /tabs >}}
-
 ### Split 分配模式
 
 Dynamic Kafka Source 支持两种 split 分配模式：
@@ -234,6 +201,39 @@ DynamicKafkaSource<String> source =
 ```
 {{< /tab >}}
 {{< /tabs >}}
+### Watermark 对齐
+
+当启用 watermark alignment 且一个 Dynamic Kafka reader 持有多个 split 时，Flink 可能会暂停或恢复单个 split，以便将各 split 的 watermark 控制在配置的 drift 范围内。Dynamic Kafka Source 会将这些针对 split 的 pause/resume 请求转发给底层 Kafka source readers，因此 split 级别的 watermark 对齐行为与常规 Kafka Source 一致。
+
+### Kafka Stream Subscription
+The Dynamic Kafka Source provides 2 ways of subscribing to Kafka stream(s).
+* A set of Kafka stream ids. For example:
+  {{< tabs "DynamicKafkaSource#setStreamIds" >}}
+  {{< tab "Java" >}}
+  ```java
+  DynamicKafkaSource.builder().setStreamIds(Set.of("stream-a", "stream-b"));
+  ```
+  {{< /tab >}}
+  {{< tab "Python" >}}
+  ```python
+  DynamicKafkaSource.builder().set_stream_ids({"stream-a", "stream-b"})
+  ```
+  {{< /tab >}}
+  {{< /tabs >}}
+* A regex pattern that subscribes to all Kafka stream ids that match the provided regex. For example:
+  {{< tabs "DynamicKafkaSource#setStreamPattern" >}}
+  {{< tab "Java" >}}
+  ```java
+  DynamicKafkaSource.builder().setStreamPattern(Pattern.of("stream.*"));
+  ```
+  {{< /tab >}}
+  {{< tab "Python" >}}
+  ```python
+  DynamicKafkaSource.builder().set_stream_pattern("stream.*")
+  ```
+  {{< /tab >}}
+  {{< /tabs >}}
+
 
 ### Kafka Metadata Service
 

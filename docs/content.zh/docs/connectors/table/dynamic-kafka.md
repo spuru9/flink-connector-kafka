@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Dynamic Kafka SQL 连接器
+# Dynamic Kafka SQL 连接器 _`实验性功能`_
 
 {{< label "Scan Source: Unbounded" >}}
 
@@ -169,6 +169,22 @@ CREATE TABLE DynamicKafkaTable (
       <td style="word-wrap: break-word;">1</td>
       <td>Integer</td>
       <td>连续发现失败次数阈值，超过将触发作业失败。</td>
+    </tr>
+    <tr>
+      <td><h5>stream-metadata-removed-cluster-retention-ms</h5></td>
+      <td>可选</td>
+      <td>否</td>
+      <td style="word-wrap: break-word;">0</td>
+      <td>Long</td>
+      <td>已移除 Kafka 集群的 split offset 和 enumerator 状态继续写入 checkpoint 的时长，单位为毫秒。零值会禁用保留。</td>
+    </tr>
+    <tr>
+      <td><h5>stream-enumerator-mode</h5></td>
+      <td>可选</td>
+      <td>否</td>
+      <td style="word-wrap: break-word;">per_cluster</td>
+      <td>String</td>
+      <td>Dynamic Kafka split 分配所使用的 Enumerator 实现。支持 <code>per_cluster</code>（集群内独立分配）和 <code>global</code>（跨集群全局均衡分配）。</td>
     </tr>
     </tbody>
 </table>

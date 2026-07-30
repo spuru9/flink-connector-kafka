@@ -122,6 +122,13 @@ of all available metadata fields.
       <td>当表用作 source 时读取数据的 topic 名，或当表用作 sink 时写入的 topic 名。它还支持通过分号分隔的 topic 列表，如 <code>'topic-1;topic-2'</code> 来作为 source 的 topic 列表。注意，“topic-pattern”和“topic”只能指定其中一个。对于 sink 来说，topic 名是写入数据的 topic。它还支持 sink 的 topic 列表。提供的 topic 列表被视为 `topic` 元数据列的有效值的允许列表。如果提供了列表，对于 sink 表，“topic”元数据列是可写的并且必须指定。</td>
     </tr>
     <tr>
+      <td><h5>topic-pattern</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>匹配读取或写入的 topic 名称的正则表达式。作业开始运行时，所有名称与该正则表达式匹配的 topic 都会被 consumer 订阅。对于 sink，<code>topic</code> 元数据列是可写的，必须指定且需要与 <code>topic-pattern</code> 正则匹配。注意，“topic-pattern”和“topic”只能指定其中一个。</td>
+    </tr>
+    <tr>
       <td><h5>properties.bootstrap.servers</h5></td>
       <td>必选</td>
       <td style="word-wrap: break-word;">(none)</td>
@@ -181,9 +188,38 @@ of all available metadata fields.
        </td>
     </tr>
     <tr>
+      <td><h5>scan.topic-partition-discovery.interval</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">5 分钟</td>
+      <td>Duration</td>
+      <td>Consumer 定期探测动态创建的 Kafka topic 和 partition 的时间间隔。需要显式地将该值设置为 0 才能关闭此功能。</td>
+    </tr>
+    <tr>
+      <td><h5>scan.bounded.mode</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">unbounded</td>
+      <td>Enum</td>
+      <td>upsert-kafka source 的有界模式，有效值为 <code>'latest-offset'</code>、<code>'group-offsets'</code>、<code>'timestamp'</code> 和 <code>'specific-offsets'</code>。
+       更多细节请参阅常规 Kafka 连接器的 <a href='{{< ref "docs/connectors/table/kafka" >}}#bounded-ending-position'>有界结束位点</a>。</td>
+    </tr>
+    <tr>
+      <td><h5>scan.bounded.specific-offsets</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>在使用 <code>'specific-offsets'</code> 有界模式时，为每个 partition 指定结束位点，例如
+       <code>'partition:0,offset:42;partition:1,offset:300'</code>。如果某个 partition 未提供结束位点，则不会消费该 partition。</td>
+    </tr>
+    <tr>
+      <td><h5>scan.bounded.timestamp-millis</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>Long</td>
+      <td>在使用 <code>'timestamp'</code> 有界模式时，指定结束的毫秒级时间戳。</td>
+    </tr>
+    <tr>
       <td><h5>scan.parallelism</h5></td>
-      <td>optional</td>
-      <td>no</td>
+      <td>可选</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>Integer</td>
       <td>定义 upsert-kafka source 算子的并行度。默认情况下会使用全局默认并行度。</td>
@@ -212,6 +248,28 @@ of all available metadata fields.
       <td>缓存刷新的间隔时间，超过该时间后异步线程将刷新缓存数据。当 sink 收到很多同 key 上的更新时，缓存将保留同 key 的最后一条记录，因此 sink 缓存能帮助减少发往 Kafka topic 的数据量，以及避免发送潜在的 tombstone 消息。
         可以通过设置为 '0' 来禁用它。默认，该选项是未开启的。注意，如果要开启 sink 缓存，需要同时设置 <code>'sink.buffer-flush.max-rows'</code>
         和 <code>'sink.buffer-flush.interval'</code> 两个选项为大于零的值。</td>
+    </tr>
+    <tr>
+      <td><h5>sink.delivery-guarantee</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">at-least-once</td>
+      <td>String</td>
+      <td>定义 upsert-kafka sink 的语义。有效值为 <code>'at-least-once'</code>，<code>'exactly-once'</code> 和 <code>'none'</code>。请参阅<a href='#一致性保证'>一致性保证</a>以获取更多细节。</td>
+    </tr>
+    <tr>
+      <td><h5>sink.transactional-id-prefix</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">(none)</td>
+      <td>String</td>
+      <td>如果语义保证被配置为 <code>'exactly-once'</code>，则必须设置该值，它将作为所有已开启 Kafka 事务标识符的前缀。</td>
+    </tr>
+    <tr>
+      <td><h5>sink.transaction-naming-strategy</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">INCREMENTING</td>
+      <td>Enum</td>
+      <td>高级选项，用于在语义保证为 <code>'exactly-once'</code> 时影响事务的命名方式。有效值为 <code>'INCREMENTING'</code> 和 <code>'POOLING'</code>。<br><code>INCREMENTING</code> 是 flink-connector-kafka 3.X 使用的策略（默认值）。它会浪费 Kafka broker 的内存，但可以在较老的 Kafka broker（Kafka 2.X）上工作。<br><code>POOLING</code> 是 flink-connector-kafka 4.X 中引入的新策略。它比 <code>INCREMENTING</code> 对资源更友好，但需要 Kafka 3.0+ 以及目标 topic 的读权限。切换到该策略需要一个由 flink-connector-kafka 4.X 创建的 checkpoint，或由更早版本创建的 savepoint；从 <code>POOLING</code> 切回 <code>INCREMENTING</code> 是不受支持的。详见<a href='{{< ref "docs/connectors/datastream/kafka" >}}#事务命名策略'>事务命名策略</a>。</td>
+    </tr>
     </tbody>
 </table>
 
@@ -220,7 +278,7 @@ of all available metadata fields.
 
 ### Key and Value Formats
 
-See the [regular Kafka connector]({{< ref "docs/connectors/datastream/kafka" >}}#key-and-value-formats) for more
+See the [regular Kafka connector]({{< ref "docs/connectors/table/kafka" >}}#key-and-value-formats) for more
 explanation around key and value formats. However, note that this connector requires both a key and
 value format where the key fields are derived from the `PRIMARY KEY` constraint.
 

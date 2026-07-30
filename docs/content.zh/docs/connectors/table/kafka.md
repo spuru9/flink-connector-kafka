@@ -319,21 +319,19 @@ CREATE TABLE KafkaTable (
     </tr>
     <tr>
       <td><h5>scan.bounded.specific-offsets</h5></td>
-      <td>optional</td>
-      <td>yes</td>
+      <td>可选</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>String</td>
-      <td>Specify offsets for each partition in case of <code>'specific-offsets'</code> bounded mode, e.g. <code>'partition:0,offset:42;partition:1,offset:300'. If an offset
-       for a partition is not provided it will not consume from that partition.</code>.
+      <td>在使用 <code>'specific-offsets'</code> 有界模式时，为每个 partition 指定结束位点，例如
+       <code>'partition:0,offset:42;partition:1,offset:300'</code>。如果某个 partition 未提供结束位点，则不会消费该 partition。
       </td>
     </tr>
     <tr>
       <td><h5>scan.bounded.timestamp-millis</h5></td>
-      <td>optional</td>
-      <td>yes</td>
+      <td>可选</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>Long</td>
-      <td>End at the specified epoch timestamp (milliseconds) used in case of <code>'timestamp'</code> bounded mode.</td>
+      <td>在使用 <code>'timestamp'</code> 有界模式时，指定结束的毫秒级时间戳。</td>
     </tr>
     <tr>
       <td><h5>scan.topic-partition-discovery.interval</h5></td>
@@ -344,8 +342,7 @@ CREATE TABLE KafkaTable (
     </tr>
     <tr>
       <td><h5>scan.parallelism</h5></td>
-      <td>optional</td>
-      <td>no</td>
+      <td>可选</td>
       <td style="word-wrap: break-word;">(none)</td>
       <td>Integer</td>
       <td>定义 Kafka source 算子的并行度。默认情况下会使用全局默认并行度。</td>
@@ -370,7 +367,28 @@ CREATE TABLE KafkaTable (
       <td>可选</td>
       <td style="word-wrap: break-word;">at-least-once</td>
       <td>String</td>
+      <td>已废弃：请使用 <code>sink.delivery-guarantee</code>。</td>
+    </tr>
+    <tr>
+      <td><h5>sink.delivery-guarantee</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">at-least-once</td>
+      <td>String</td>
       <td>定义 Kafka sink 的语义。有效值为 <code>'at-least-once'</code>，<code>'exactly-once'</code> 和 <code>'none'</code>。请参阅 <a href='#一致性保证'>一致性保证</a> 以获取更多细节。</td>
+    </tr>
+    <tr>
+      <td><h5>sink.transactional-id-prefix</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">（无）</td>
+      <td>String</td>
+      <td>如果语义保证被配置为 <code>'exactly-once'</code>，则必须设置该值，它将作为所有已开启 Kafka 事务标识符的前缀。</td>
+    </tr>
+    <tr>
+      <td><h5>sink.transaction-naming-strategy</h5></td>
+      <td>可选</td>
+      <td style="word-wrap: break-word;">INCREMENTING</td>
+      <td>Enum</td>
+      <td>高级选项，用于在语义保证为 <code>'exactly-once'</code> 时影响事务的命名方式。有效值为 <code>'INCREMENTING'</code> 和 <code>'POOLING'</code>。<br><code>INCREMENTING</code> 是 flink-connector-kafka 3.X 使用的策略（默认值）。它会浪费 Kafka broker 的内存，但可以在较老的 Kafka broker（Kafka 2.X）上工作。<br><code>POOLING</code> 是 flink-connector-kafka 4.X 中引入的新策略。它比 <code>INCREMENTING</code> 对资源更友好，但需要 Kafka 3.0+ 以及目标 topic 的读权限。切换到该策略需要一个由 flink-connector-kafka 4.X 创建的 checkpoint，或由更早版本创建的 savepoint；从 <code>POOLING</code> 切回 <code>INCREMENTING</code> 是不受支持的。详见 <a href='{{< ref "docs/connectors/datastream/kafka" >}}#事务命名策略'>事务命名策略</a>。</td>
     </tr>
     <tr>
       <td><h5>sink.parallelism</h5></td>
@@ -519,7 +537,9 @@ ROW<`version` INT, `behavior` STRING>
 如果使用了 `specific-offsets`，必须使用另外一个配置项 `scan.startup.specific-offsets` 来为每个 partition 指定起始偏移量，
 例如，选项值 `partition:0,offset:42;partition:1,offset:300` 表示 partition `0` 从偏移量 `42` 开始，partition `1` 从偏移量 `300` 开始。
 
-### Bounded Ending Position
+<a name="bounded-ending-position"></a>
+
+### 有界结束位点
 
 The config option `scan.bounded.mode` specifies the bounded mode for Kafka consumer. The valid enumerations are:
 <ul>

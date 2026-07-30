@@ -424,6 +424,14 @@ Connector Options
       <td>If the delivery guarantee is configured as <code>'exactly-once'</code> this value must be set and is used a prefix for the identifier of all opened Kafka transactions.</td>
     </tr>
     <tr>
+      <td><h5>sink.transaction-naming-strategy</h5></td>
+      <td>optional</td>
+      <td>no</td>
+      <td style="word-wrap: break-word;">INCREMENTING</td>
+      <td>Enum</td>
+      <td>Advanced option to influence how transactions are named when the delivery guarantee is <code>'exactly-once'</code>. Valid enumerations are <code>'INCREMENTING'</code> and <code>'POOLING'</code>.<br><code>INCREMENTING</code> is the strategy used in flink-connector-kafka 3.X (default). It wastes memory of the Kafka broker but works with older Kafka broker versions (Kafka 2.X).<br><code>POOLING</code> is a new strategy introduced in flink-connector-kafka 4.X. It is more resource-friendly than <code>INCREMENTING</code> but requires Kafka 3.0+ and read permission on the target topics. Switching to this strategy requires a checkpoint taken with flink-connector-kafka 4.X or a savepoint taken with earlier versions; switching back from <code>POOLING</code> to <code>INCREMENTING</code> is not supported. See <a href='{{< ref "docs/connectors/datastream/kafka" >}}#transaction-naming-strategy'>Transaction Naming Strategy</a> for details.</td>
+    </tr>
+    <tr>
       <td><h5>sink.parallelism</h5></td>
       <td>optional</td>
       <td>no</td>

@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Dynamic Kafka SQL Connector
+# Dynamic Kafka SQL Connector _`Experimental`_
 
 {{< label "Scan Source: Unbounded" >}}
 
@@ -173,6 +173,22 @@ Connector Options
       <td style="word-wrap: break-word;">1</td>
       <td>Integer</td>
       <td>Number of consecutive discovery failures before failing the job.</td>
+    </tr>
+    <tr>
+      <td><h5>stream-metadata-removed-cluster-retention-ms</h5></td>
+      <td>optional</td>
+      <td>no</td>
+      <td style="word-wrap: break-word;">0</td>
+      <td>Long</td>
+      <td>The duration in milliseconds that removed Kafka cluster split offsets and enumerator state stay in checkpoints. Zero disables retention.</td>
+    </tr>
+    <tr>
+      <td><h5>stream-enumerator-mode</h5></td>
+      <td>optional</td>
+      <td>no</td>
+      <td style="word-wrap: break-word;">per_cluster</td>
+      <td>String</td>
+      <td>Enumerator implementation for dynamic Kafka split assignment. Supported values are <code>per_cluster</code> (cluster-local assignment) and <code>global</code> (globally balanced assignment across clusters).</td>
     </tr>
     </tbody>
 </table>

@@ -179,7 +179,10 @@ KafkaSource.builder()
     // 从最早位点开始消费
     .setStartingOffsets(OffsetsInitializer.earliest())
     // 从最末尾位点开始消费
-    .setStartingOffsets(OffsetsInitializer.latest());
+    .setStartingOffsets(OffsetsInitializer.latest())
+    // 从指定的位点开始消费。对于未在 map 中列出的已订阅分区，将回退到该分区的提交位点，
+    // 若提交位点也不存在则使用位点重置策略（此处为 EARLIEST，另有重载方法可显式指定 OffsetResetStrategy）
+    .setStartingOffsets(OffsetsInitializer.offsets(specifiedOffsets));
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -418,6 +421,27 @@ JAR 中实际的类路径来改写以上配置。
 
 关于安全配置的详细描述，请参阅 <a href="https://kafka.apache.org/documentation/#security">Apache Kafka 文档中的"安全"一节</a>。
 
+## Kafka 机架感知（Rack Awareness）
+
+Kafka 的机架感知功能允许 Flink 基于机架 ID（Rack ID）来选择和控制 Kafka consumer 从哪个云区域（region）和可用区（availability zone）读取数据。
+由于该功能允许 consumer 连接到最近的 Kafka broker（可能与其位于同一云区域和可用区），因此可以降低网络成本和延迟。
+客户端的机架通过 `client.rack` 配置项指定，其取值应与 broker 的 `broker.rack` 配置相对应。
+
+https://kafka.apache.org/documentation/#consumerconfigs_client.rack
+
+### RackId
+
+`setRackIdSupplier()` 是用于确定 consumer 所属机架的 Builder 方法。如果提供了该 Supplier，它将在 TaskManager 上创建 consumer 时执行，
+并将 consumer 的 `client.rack` 配置设置为其返回值。
+
+一种可行的实现方式是让 `setRackIdSupplier` 读取 TaskManager 中的环境变量，例如：
+
+```
+.setRackIdSupplier(() -> System.getenv("TM_NODE_AZ"))
+```
+
+其中 "TM_NODE_AZ" 是 TaskManager 容器中保存目标可用区的环境变量名。
+
 ### 实现细节
 {{< hint info >}}
 如果你对 Kafka source 在新的 Source API 中的设计感兴趣，可阅读该部分作为参考。关于新 Source API 的细节，[Source
@@ -448,10 +472,13 @@ Kafka source 的源读取器扩展了 ```SourceReaderBase```，并使用单线�
 
 ## Kafka SourceFunction
 {{< hint warning >}}
-`FlinkKafkaConsumer` 已被弃用并将在 Flink 1.17 中移除，请改用 ```KafkaSource```。
+`FlinkKafkaConsumer` 已被**移除**。它基于已废弃的 `SourceFunction` API 实现，并在 flink-connector-kafka 4.0 中被删除，
+包含它的最后一个发布系列是 3.4。请改用 [Kafka Source](#kafka-source)。
 {{< /hint >}}
 
-如需参考，请参阅 Flink 1.13 [文档](https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-sourcefunction)。
+如果你仍在从 `FlinkKafkaConsumer` 迁移，其配置项可参阅
+[3.4 文档](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)，
+迁移步骤请参阅下文的[迁移说明](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer)。
 
 ## Kafka Sink
 
@@ -549,6 +576,61 @@ KafkaRecordSerializationSchema.builder() \
   完成时才会可见，因此请按需调整 checkpoint 的间隔。请确认事务 ID 的前缀（transactionIdPrefix）对不同的应用是唯一的，以保证不同作业的事务
   不会互相影响！此外，强烈建议将 Kafka 的事务超时时间调整至远大于 checkpoint 最大间隔 + 最大重启时间，否则 Kafka 对未提交事务的过期处理会导致数据丢失。
 
+### 事务命名策略
+
+{{< hint info >}}
+本节仅适用于 `DeliveryGuarantee.EXACTLY_ONCE`。其他语义保证不会开启 Kafka 事务，因此命名策略对它们没有影响。
+{{< /hint >}}
+
+当 sink 以 `DeliveryGuarantee.EXACTLY_ONCE` 运行时，它开启的每个事务都会获得形如
+`transactionalIdPrefix-subtask-offset` 的名称。命名策略决定了其中 `offset` 的生成方式，这在运维上非常重要：
+Kafka broker 会为每个**唯一**的 transactional id 在内存中保留 7 天的元数据，因此不断产生新名称的策略
+会使 broker 的内存消耗随 checkpoint 数量增长。
+
+该策略通过构建类配置：
+
+```java
+KafkaSink.<String>builder()
+    .setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE)
+    .setTransactionalIdPrefix("my-app")
+    .setTransactionNamingStrategy(TransactionNamingStrategy.POOLING);
+```
+
+<table class="table table-bordered">
+  <thead>
+    <tr>
+      <th class="text-left" style="width: 15%">策略</th>
+      <th class="text-left" style="width: 25%">前置条件</th>
+      <th class="text-left" style="width: 60%">描述</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>INCREMENTING</code>（默认）</td>
+      <td>Kafka 2.x 及以上</td>
+      <td>offset 是单调递增的数字，基本对应 checkpoint id。这与 flink-connector-kafka 3.X 的行为完全一致。
+      它可以在较老的 broker 上工作，但会浪费 broker 内存，因为每次 checkpoint 都会引入新的 transactional id。</td>
+    </tr>
+    <tr>
+      <td><code>POOLING</code></td>
+      <td>Kafka 3.0+，且对目标 topic 具有<strong>读权限</strong></td>
+      <td>事务名称会从一个池中复用，因此不同 transactional id 的数量保持有界。该策略在 flink-connector-kafka 4.X
+      中引入，对 broker 资源明显更友好。它需要目标 topic 的读权限，因为恢复时会列出已有事务而不是逐个探测。</td>
+    </tr>
+  </tbody>
+</table>
+
+{{< hint warning >}}
+**策略切换不是对称的。**
+
+* `INCREMENTING` → `POOLING`：先用 flink-connector-kafka 4.X 或更高版本创建一个 checkpoint 再切换，
+  这样可以保证上一次运行没有遗留未关闭的事务。也可以从任意版本创建的 savepoint 恢复。
+* `POOLING` → `INCREMENTING`：**不受支持。** 一旦采用 `POOLING` 就不要再切回去。
+{{< /hint >}}
+
+出于与 3.X 的向后兼容考虑，默认值为 `INCREMENTING`。建议仅在确实遇到 broker 端 transactional id 元数据
+带来的资源压力时才修改该策略。
+
 ### 监控
 
 Kafka sink 会在不同的[范围（Scope）]({{< ref "docs/ops/metrics" >}}/#scope)中汇报下列指标。
@@ -577,10 +659,13 @@ Kafka sink 会在不同的[范围（Scope）]({{< ref "docs/ops/metrics" >}}/#sc
 ## Kafka Producer
 
 {{< hint warning >}}
-`FlinkKafkaProducer` 已被弃用并将在 Flink 1.15 中移除，请改用 ```KafkaSink```。
+`FlinkKafkaProducer` 已被**移除**。它基于已废弃的 `SinkFunction` API 实现，并在 flink-connector-kafka 4.0 中被删除，
+包含它的最后一个发布系列是 3.4。请改用 [Kafka Sink](#kafka-sink)。
 {{< /hint >}}
 
-如需参考，请参阅 Flink 1.13 [文档](https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-producer)。
+如果你仍在从 `FlinkKafkaProducer` 迁移，其配置项可参阅
+[3.4 文档](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)，
+迁移步骤请参阅下文的[迁移说明](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer)。
 
 ## Kafka 连接器指标
 
@@ -588,12 +673,12 @@ Flink 的 Kafka 连接器通过 Flink 的[指标系统]({{< ref "docs/ops/metric
 各个版本的 Kafka producer 和 consumer 会通过 Flink 的指标系统汇报 Kafka 内部的指标。
 [该 Kafka 文档](http://kafka.apache.org/documentation/#selector_monitoring)列出了所有汇报的指标。
 
-同样也可通过将 Kafka source 在[该章节]({{< relref "#kafka-connector-metrics" >}})描述的 `register.consumer.metrics`，或 Kafka
+同样也可通过将 Kafka source 在[该章节]({{< relref "#其他属性" >}})描述的 `register.consumer.metrics`，或 Kafka
 sink 的 `register.producer.metrics` 配置设置为 false 来关闭 Kafka 指标的注册。
 
 ## 启用 Kerberos 身份验证
 
-Flink 通过 Kafka 连接器提供了一流的支持，可以对 Kerberos 配置的 Kafka 安装进行身份验证。只需在 `flink-conf.yaml` 中配置 Flink。像这样为 Kafka 启用 Kerberos 身份验证：
+Flink 通过 Kafka 连接器提供了一流的支持，可以对 Kerberos 配置的 Kafka 安装进行身份验证。只需在 `config.yaml` 中配置 Flink。像这样为 Kafka 启用 Kerberos 身份验证：
 
 1. 通过设置以下内容配置 Kerberos 票据
 - `security.kerberos.login.use-ticket-cache`：默认情况下，这个值是 `true`，Flink 将尝试在 `kinit` 管理的票据缓存中使用 Kerberos 票据。注意！在 YARN 上部署的 Flink  jobs 中使用 Kafka 连接器时，使用票据缓存的 Kerberos 授权将不起作用。
@@ -615,11 +700,32 @@ Flink 通过 Kafka 连接器提供了一流的支持，可以对 Kerberos 配置
 通用的升级步骤概述见 [升级 Jobs 和 Flink 版本指南]({{< ref "docs/ops/upgrading" >}})。对于 Kafka，你还需要遵循这些步骤：
 
 * 不要同时升级 Flink 和 Kafka 连接器
-* 确保你对 Consumer 设置了 `group.id`
-* 在 Consumer 上设置 `setCommitOffsetsOnCheckpoints(true)`，以便读 offset 提交到 Kafka。务必在停止和恢复 savepoint 前执行此操作。你可能需要在旧的连接器版本上进行停止/重启循环来启用此设置。
-* 在 Consumer 上设置 `setStartFromGroupOffsets(true)`，以便我们从 Kafka 获取读 offset。这只会在 Flink 状态中没有读 offset 时生效，这也是为什么下一步非要重要的原因。
+* 确保通过 `KafkaSource.builder().setGroupId(String)` 为 source 设置了 `group.id`
+* 在升级前创建 savepoint 或执行 stop-with-savepoint。`KafkaSource` 从 Flink 状态中恢复位点，
+  因此只要保持算子的 `uid` 不变，升级就无需额外操作。
+* 如果你同时还要修改 `KafkaSink` 的语义保证或事务命名策略，请先阅读[事务命名策略](#事务命名策略)：
+  部分切换需要 savepoint，其中一种切换方向完全不受支持。
+
+<a name="migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer"></a>
+
+### 从 `FlinkKafkaConsumer` 和 `FlinkKafkaProducer` 迁移
+
+`FlinkKafkaConsumer` 和 `FlinkKafkaProducer` 已在 flink-connector-kafka 4.0 中被移除。它们的状态与
+`KafkaSource` / `KafkaSink` 不兼容，因此无法通过直接恢复 savepoint 完成迁移：
+
+* 在仍使用 3.4 或更早版本的连接器时，确保 `FlinkKafkaConsumer` 上配置了 `group.id`，并设置了
+  `setCommitOffsetsOnCheckpoints(true)`，以便读 offset 提交到 Kafka。务必在停止并创建 savepoint 前执行此操作。
+  你可能需要在旧的连接器版本上进行停止/重启循环来启用此设置。
+* 创建 savepoint 并停止作业。
+* 将 `FlinkKafkaConsumer` 替换为 `KafkaSource`、`FlinkKafkaProducer` 替换为 `KafkaSink`，并为 source 配置
+  `setStartingOffsets(OffsetsInitializer.committedOffsets())`，使其从第一步中提交到 Kafka 的位点继续消费。
 * 修改 source/sink 分配到的 `uid`。这会确保新的 source/sink 不会从旧的 sink/source 算子中读取状态。
 * 使用 `--allow-non-restored-state` 参数启动新 job，因为我们在 savepoint 中仍然有先前连接器版本的状态。
+
+{{< hint warning >}}
+`KafkaSink` 无法接管 `FlinkKafkaProducer` 遗留的进行中事务。请在切换前使用 savepoint 停止旧作业
+（这会提交其待处理的事务），否则 `EXACTLY_ONCE` 的下游消费者可能会一直阻塞，直到该未提交事务超时。
+{{< /hint >}}
 
 <a name="troubleshooting"></a>
 
@@ -651,7 +757,11 @@ Flink 通过 Kafka 连接器提供了一流的支持，可以对 Kerberos 配置
 
 ### ProducerFencedException
 
-这个错误是由于 `FlinkKafkaProducer` 所生成的 `transactional.id` 与其他应用所使用的的产生了冲突。多数情况下，由于 `FlinkKafkaProducer` 产生的 ID 都是以 `taskName + "-" + operatorUid` 为前缀的，这些产生冲突的应用也是使用了相同 Job Graph 的 Flink Job。
-我们可以使用 `setTransactionalIdPrefix()` 方法来覆盖默认的行为，为每个不同的 Job 分配不同的 `transactional.id` 前缀来解决这个问题。
+该异常的原因通常是 broker 端的事务超时。随着 [KAFKA-6119](https://issues.apache.org/jira/browse/KAFKA-6119) 的实现，
+事务超时后 `(producerId, epoch)` 会被隔离（fenced），其所有待处理事务都会被中止（每个 `transactional.id` 对应
+一个 `producerId`，详见这篇[博客](https://www.confluent.io/blog/simplified-robust-exactly-one-semantics-in-kafka-2-5/)）。
+
+该异常也可能由 `transactional.id` 冲突引起：如果多个作业使用了相同的事务 ID 前缀，它们会互相隔离。
+请通过 `setTransactionalIdPrefix()` 为运行在同一 Kafka 集群上的每个作业分配唯一的前缀。
 
 {{< top >}}
