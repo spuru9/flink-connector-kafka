@@ -185,7 +185,8 @@ KafkaSource.builder()
     // Start from the specified offsets for the listed partitions. Any subscribed partition that is
     // absent from the map falls back to its committed offset, and then to the reset strategy
     // (EARLIEST here; an overload accepts an explicit OffsetResetStrategy)
-    .setStartingOffsets(OffsetsInitializer.offsets(specifiedOffsets));
+    .setStartingOffsets(OffsetsInitializer.offsets(
+            Map.of(new TopicPartition("topic-a", 0), 42L)));
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -200,7 +201,12 @@ KafkaSource.builder() \
     # Start from the earliest offset
     .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
     # Start from the latest offset
-    .set_starting_offsets(KafkaOffsetsInitializer.latest())
+    .set_starting_offsets(KafkaOffsetsInitializer.latest()) \
+    # Start from the specified offsets for the listed partitions. Any subscribed partition that is
+    # absent from the dict falls back to its committed offset, and then to the reset strategy
+    .set_starting_offsets(KafkaOffsetsInitializer.offsets(
+        {KafkaTopicPartition("topic-a", 0): 42},
+        KafkaOffsetResetStrategy.EARLIEST))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -530,9 +536,10 @@ dropped in flink-connector-kafka 4.0; the last release series that contains it i
 Use [Kafka Source](#kafka-source) instead.
 {{< /hint >}}
 
-If you are still migrating off `FlinkKafkaConsumer`, see the
-[3.4 documentation](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)
-for its options and the [migration notes](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer) below.
+If you are still migrating off `FlinkKafkaConsumer`, its API is described in the Flink 1.13
+<a href="https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-sourcefunction">documentation</a>,
+and the [migration notes](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer) below cover the
+switch to `KafkaSource`.
 
 ## Kafka Sink
 
@@ -740,9 +747,10 @@ dropped in flink-connector-kafka 4.0; the last release series that contains it i
 Use [Kafka Sink](#kafka-sink) instead.
 {{< /hint >}}
 
-If you are still migrating off `FlinkKafkaProducer`, see the
-[3.4 documentation](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)
-for its options and the [migration notes](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer) below.
+If you are still migrating off `FlinkKafkaProducer`, its API is described in the Flink 1.13
+<a href="https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-producer">documentation</a>,
+and the [migration notes](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer) below cover the
+switch to `KafkaSink`.
 
 ## Kafka Connector Metrics
 

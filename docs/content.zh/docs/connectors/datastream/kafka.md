@@ -182,7 +182,8 @@ KafkaSource.builder()
     .setStartingOffsets(OffsetsInitializer.latest())
     // 从指定的位点开始消费。对于未在 map 中列出的已订阅分区，将回退到该分区的提交位点，
     // 若提交位点也不存在则使用位点重置策略（此处为 EARLIEST，另有重载方法可显式指定 OffsetResetStrategy）
-    .setStartingOffsets(OffsetsInitializer.offsets(specifiedOffsets));
+    .setStartingOffsets(OffsetsInitializer.offsets(
+            Map.of(new TopicPartition("topic-a", 0), 42L)));
 ```
 {{< /tab >}}
 {{< tab "Python" >}}
@@ -197,7 +198,12 @@ KafkaSource.builder()
     # 从最早位点开始消费
     .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
     # 从最末尾位点开始消费
-    .set_starting_offsets(KafkaOffsetsInitializer.latest())
+    .set_starting_offsets(KafkaOffsetsInitializer.latest()) \
+    # 从指定的位点开始消费。对于未在 dict 中列出的已订阅分区，将回退到该分区的提交位点，
+    # 若提交位点也不存在则使用位点重置策略
+    .set_starting_offsets(KafkaOffsetsInitializer.offsets(
+        {KafkaTopicPartition("topic-a", 0): 42},
+        KafkaOffsetResetStrategy.EARLIEST))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -476,9 +482,9 @@ Kafka source 的源读取器扩展了 ```SourceReaderBase```，并使用单线�
 包含它的最后一个发布系列是 3.4。请改用 [Kafka Source](#kafka-source)。
 {{< /hint >}}
 
-如果你仍在从 `FlinkKafkaConsumer` 迁移，其配置项可参阅
-[3.4 文档](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)，
-迁移步骤请参阅下文的[迁移说明](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer)。
+如果你仍在从 `FlinkKafkaConsumer` 迁移，其 API 可参阅 Flink 1.13
+<a href="https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-sourcefunction">文档</a>，
+切换到 `KafkaSource` 的步骤请参阅下文的[迁移说明](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer)。
 
 ## Kafka Sink
 
@@ -663,9 +669,9 @@ Kafka sink 会在不同的[范围（Scope）]({{< ref "docs/ops/metrics" >}}/#sc
 包含它的最后一个发布系列是 3.4。请改用 [Kafka Sink](#kafka-sink)。
 {{< /hint >}}
 
-如果你仍在从 `FlinkKafkaProducer` 迁移，其配置项可参阅
-[3.4 文档](https://nightlies.apache.org/flink/flink-docs-release-1.20/docs/connectors/datastream/kafka/)，
-迁移步骤请参阅下文的[迁移说明](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer)。
+如果你仍在从 `FlinkKafkaProducer` 迁移，其 API 可参阅 Flink 1.13
+<a href="https://nightlies.apache.org/flink/flink-docs-release-1.13/docs/connectors/datastream/kafka/#kafka-producer">文档</a>，
+切换到 `KafkaSink` 的步骤请参阅下文的[迁移说明](#migrating-from-flinkkafkaconsumer-and-flinkkafkaproducer)。
 
 ## Kafka 连接器指标
 
