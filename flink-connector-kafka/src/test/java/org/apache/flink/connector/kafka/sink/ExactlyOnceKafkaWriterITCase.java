@@ -106,6 +106,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
                 .doesNotThrowAnyException();
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
+        awaitFailedSend(writer);
         // async exception is checked and thrown on close
         assertThatCode(writer::close).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
     }
@@ -137,6 +138,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
                 .doesNotThrowAnyException();
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
+        awaitFailedSend(writer);
         // async exception is checked and thrown on close
         assertThatCode(writer::close).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
     }
@@ -174,6 +176,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
                 .doesNotThrowAnyException();
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
+        awaitFailedSend(writer);
         // async exception is checked and thrown on close
         assertThatCode(writer::close).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
     }
@@ -216,6 +219,16 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         }
 
         writer.write(1, SINK_WRITER_CONTEXT);
+    }
+
+    /**
+     * Waits until a record written after the first failure has failed too. With Transactions V2,
+     * the producer calls the failed batch's callbacks before it records the error, so a write right
+     * after the first failure can still be sent and fail later. Without waiting, that failure can
+     * arrive after {@link KafkaWriter#close()} has started, which ignores it.
+     */
+    private static void awaitFailedSend(KafkaWriter<Integer> writer) {
+        writer.getCurrentProducer().flush();
     }
 
     /** Test that producer is not accidentally recreated or pool is used. */
