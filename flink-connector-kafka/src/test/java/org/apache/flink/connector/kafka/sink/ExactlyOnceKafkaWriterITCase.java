@@ -37,6 +37,7 @@ import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.errors.InvalidProducerEpochException;
 import org.apache.kafka.common.errors.ProducerFencedException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -74,6 +75,13 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
     private static final Consumer<KafkaSinkBuilder<?>> EXACTLY_ONCE =
             sink -> sink.setDeliveryGuarantee(DeliveryGuarantee.EXACTLY_ONCE);
 
+    // A fenced producer fails with ProducerFencedException on transaction coordinator requests
+    // and with InvalidProducerEpochException on produce requests. With Transactions V2 (KIP-890),
+    // the default since Kafka 4.0, the writer's send reports the latter.
+    private static final Class<?>[] FENCED_EXCEPTIONS = {
+        ProducerFencedException.class, InvalidProducerEpochException.class
+    };
+
     @Test
     void testFlushAsyncErrorPropagationAndErrorCounter() throws Exception {
         Properties properties = getKafkaClientConfiguration();
@@ -90,8 +98,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         triggerProducerException(writer, properties);
 
         // test flush
-        assertThatCode(() -> writer.flush(false))
-                .hasRootCauseExactlyInstanceOf(ProducerFencedException.class);
+        assertThatCode(() -> writer.flush(false)).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
         assertThatCode(() -> writer.write(1, SINK_WRITER_CONTEXT))
@@ -100,7 +107,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
         // async exception is checked and thrown on close
-        assertThatCode(writer::close).hasRootCauseInstanceOf(ProducerFencedException.class);
+        assertThatCode(writer::close).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
     }
 
     @Test
@@ -121,7 +128,8 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         writer.getCurrentProducer().flush();
 
         assertThatCode(() -> writer.write(1, SINK_WRITER_CONTEXT))
-                .hasRootCauseExactlyInstanceOf(ProducerFencedException.class);
+                .rootCause()
+                .isInstanceOfAny(FENCED_EXCEPTIONS);
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
         assertThatCode(() -> writer.write(1, SINK_WRITER_CONTEXT))
@@ -130,7 +138,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
         // async exception is checked and thrown on close
-        assertThatCode(writer::close).hasRootCauseInstanceOf(ProducerFencedException.class);
+        assertThatCode(writer::close).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
     }
 
     @Test
@@ -156,7 +164,8 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
                                 // execute all mails
                             }
                         })
-                .hasRootCauseExactlyInstanceOf(ProducerFencedException.class);
+                .rootCause()
+                .isInstanceOfAny(FENCED_EXCEPTIONS);
 
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
@@ -166,7 +175,7 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
 
         // async exception is checked and thrown on close
-        assertThatCode(writer::close).hasRootCauseInstanceOf(ProducerFencedException.class);
+        assertThatCode(writer::close).rootCause().isInstanceOfAny(FENCED_EXCEPTIONS);
     }
 
     @Test
@@ -189,7 +198,8 @@ public class ExactlyOnceKafkaWriterITCase extends KafkaWriterTestBase {
         // test flush
         assertThatCode(writer::close)
                 .as("flush should throw the exception from the WriterCallback")
-                .hasRootCauseExactlyInstanceOf(ProducerFencedException.class);
+                .rootCause()
+                .isInstanceOfAny(FENCED_EXCEPTIONS);
         assertThat(numRecordsOutErrors.getCount()).isEqualTo(1L);
     }
 
